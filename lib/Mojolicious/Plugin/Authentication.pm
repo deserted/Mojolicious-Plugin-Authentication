@@ -22,6 +22,7 @@ sub register {
     my $load_user_cb      = $args->{load_user};
     my $validate_user_cb  = $args->{validate_user};
     my $current_user_fn   = $args->{current_user_fn} || 'current_user';
+		my $user_details_fn		= $args->{user_details_fn} || 'user_details';
 
     # Unconditionally load the user based on uid in session
     my $user_loader_sub = sub {
@@ -29,10 +30,15 @@ sub register {
 
         if (my $uid = $c->session($session_key)) {
             my $user = $load_user_cb->($c, $uid);
-            if ($user) {
-                $c->stash($our_stash_key => { user => $user });
-            }
-            else {
+						if ($user && $user->isa('HASH')) {
+							if (defined($user->{user})) {
+								$c->stash($our_stash_key => {$user_details_fn => $user});
+								$c->stash($our_stash_key->{user}) = $user->{user};
+							}
+						} elsif (!($user->isa('HASH'))) {
+								$c->stash($our_stash_key => { user => $user });
+
+            } else {
                 # cache result that user does not exist
                 $c->stash($our_stash_key => { no_user => 1 });
             }
@@ -42,7 +48,7 @@ sub register {
     # Fetch the current user object from the stash - loading it if not already loaded
     my $user_stash_extractor_sub = sub {
         my $c = shift;
-
+				my $fullRecord = shift || undef;
         if ( !(
                 defined($c->stash($our_stash_key))
                 && ($c->stash($our_stash_key)->{no_user}
@@ -56,7 +62,7 @@ sub register {
         my $user_def = defined($c->stash($our_stash_key))
                           && defined($c->stash($our_stash_key)->{user});
 
-        return $user_def ? $c->stash($our_stash_key)->{user} : undef;
+        return $user_def ? ($fullRecord ? $c->stash($our_stash_key) : $c->stash($our_stash_key)->{user}) : undef;
 
     };
 
@@ -88,6 +94,11 @@ sub register {
         return $user_stash_extractor_sub->($c);
     };
 
+	  my $current_user_details = sub {
+        my $c = shift;
+        return $user_stash_extractor_sub->($c, 'fullrecord');
+    };
+
     $app->helper(reload_user => sub {
         my $c = shift;
         # Clear stash to force a reload of the user object
@@ -106,6 +117,8 @@ sub register {
     });
 
     $app->helper("$current_user_fn" => $current_user);
+
+    $app->helper("$user_details_fn" => $current_user_details);
 
     $app->helper(logout => sub {
         my $c = shift;
@@ -126,7 +139,7 @@ sub register {
             delete $c->stash->{$our_stash_key};
             return 1 if defined( $current_user->($c) );
         } elsif (my $uid = $validate_user_cb->($c, $user, $pass, $extradata)) {
-            $c->session($session_key => $uid);
+						$c->session($session_key => $uid);
             # Clear stash to force reload of any already loaded user object
             delete $c->stash->{$our_stash_key};
             return 1 if defined( $current_user->($c) );
@@ -154,7 +167,7 @@ Mojolicious::Plugin::Authentication - A plugin to make authentication a bit easi
     });
 
     if ($self->authenticate('username', 'password', { optional => 'extra data stuff' })) {
-        ... 
+        ...
     }
 
 
@@ -202,7 +215,7 @@ The following options can be set for the plugin:
 
 =item current_user_fn (optional) Set the name for the current_user() helper function
 
-=back 
+=back
 
 In order to set the session expiry time, use the following in your startup routine:
 
@@ -214,7 +227,7 @@ In order to set the session expiry time, use the following in your startup routi
 
 The coderef you pass to the load_user configuration key has the following signature:
 
-    sub { 
+    sub {
         my ($app, $uid) = @_;
         ...
         return $user;
@@ -232,7 +245,7 @@ User validation is what happens when we need to authenticate someone. The codere
         return $uid;
     }
 
-You must return either a user id or undef. The user id can be numerical or a string. Do not return hashrefs, arrayrefs or objects, since the behaviour of this plugin could get a little bit on the odd side of weird if you do that. 
+You must return either a user id or undef. The user id can be numerical or a string. Do not return hashrefs, arrayrefs or objects, since the behaviour of this plugin could get a little bit on the odd side of weird if you do that.
 
 =head1 EXAMPLES
 
@@ -247,7 +260,7 @@ This plugin also exports a routing condition you can use in order to limit acces
     my $authenticated_only = $r->route('/members')->over(authenticated => 1)->to('members#index');
     $authenticated_only->route('online')->to('members#online');
 
-If someone is not authenticated, these routes will not be considered by the dispatcher and unless you have set up a catch-all route, a 404 Not Found will be generated instead. 
+If someone is not authenticated, these routes will not be considered by the dispatcher and unless you have set up a catch-all route, a 404 Not Found will be generated instead.
 
 And another condition for fast and unsecured checking for users, having a signature (without validating it). This method just checks client cookies for uid data existing.
 
@@ -341,10 +354,10 @@ L<http://search.cpan.org/dist/Mojolicious-Plugin-Authentication/>
 
 =head1 ACKNOWLEDGEMENTS
 
-Andrew Parker   
+Andrew Parker
     -   For pointing out some bugs that crept in; a silent reminder not to code while sleepy
 
-Mirko Westermeier (memowe) 
+Mirko Westermeier (memowe)
     -   For doing some (much needed) code cleanup
 
 Terrence Brannon (metaperl)
@@ -362,7 +375,7 @@ Ed W
         a bit more sane.
 
 SailingYYC (Github)
-    -   For reporting an issue with routing conditions; I really should not code while sleepy, brainfarts imminent! 
+    -   For reporting an issue with routing conditions; I really should not code while sleepy, brainfarts imminent!
 
 =head1 LICENSE AND COPYRIGHT
 
